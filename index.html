@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>네 가지 힘 시각화 – 자바실험실 느낌 (강력: 슬라이더 복원)</title>
+  <style>
+    :root{ --bg:#f7f9fc;--panel:#ffffff;--ink:#0f172a;--muted:#64748b;--accent:#2563eb;--accent2:#22c55e;--warn:#ef4444; }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Apple SD Gothic Neo,Noto Sans KR,sans-serif;color:var(--ink);background:var(--bg)}
+    .app{display:grid;grid-template-columns:320px 1fr;gap:16px;height:100%}
+    aside{background:var(--panel);border-right:1px solid #e5e7eb;padding:16px;overflow:auto}
+    main{display:grid;grid-template-rows:auto 1fr auto;gap:12px;padding:16px}
+    h1{font-size:20px;margin:0 0 8px 0}
+    .tabs{display:flex;gap:8px;margin-bottom:8px}
+    .tab{padding:8px 12px;border:1px solid #e5e7eb;background:#fff;border-radius:8px;cursor:pointer}
+    .tab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+    .panel{display:none}
+    .panel.active{display:block}
+    .group{margin:12px 0}
+    .row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:6px 0}
+    .row label{font-size:13px;color:var(--muted)}
+    input[type="range"]{width:100%}
+    button{appearance:none;border:1px solid #e5e7eb;background:#fff;padding:8px 12px;border-radius:10px;cursor:pointer}
+    button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+    button.ghost{background:#fff}
+    .hint{font-size:12px;color:var(--muted)}
+    canvas{display:block;max-width:100%;height:auto;background:#fff;border:1px solid #e5e7eb;border-radius:12px}
+    .legend{display:flex;gap:12px;align-items:center;font-size:12px;color:var(--muted)}
+    .badge{display:inline-flex;padding:2px 6px;border-radius:999px;font-size:11px;border:1px solid #e5e7eb;color:var(--muted)}
+    .note{font-size:12px;color:var(--muted);line-height:1.4}
+    .diagnostics{font-size:12px;color:#0f172a;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:8px;padding:8px}
+    .ok{color:#16a34a}.err{color:#dc2626}
+    @media (max-width:960px){.app{grid-template-columns:1fr}aside{order:2}main{order:1;height:auto}}
+  </style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <h1>네 가지 힘 시각화</h1>
+    <div class="tabs" id="tabs">
+      <div class="tab active" data-panel="gravity">중력</div>
+      <div class="tab" data-panel="em">전자기력</div>
+      <div class="tab" data-panel="strong">강력</div>
+      <div class="tab" data-panel="weak">약력</div>
+    </div>
+
+    <!-- Gravity Controls -->
+    <section class="panel active" id="panel-gravity">
+      <div class="group">
+        <div class="row"><label>행성 질량 M (상대값)</label><span id="gMVal">50</span></div>
+        <input id="gM" type="range" min="10" max="200" step="1" value="50" />
+        <div class="row"><label>물체 질량 m (상대값)</label><span id="gmVal">5</span></div>
+        <input id="gm" type="range" min="1" max="50" step="1" value="5" />
+        <div class="row"><label>시작 거리 r (px)</label><span id="grVal">260</span></div>
+        <input id="gr" type="range" min="150" max="500" step="1" value="260" />
+      </div>
+      <div class="group">
+        <div class="row" style="gap:8px;flex-wrap:wrap">
+          <button id="gStart" class="primary">실행 ▶</button>
+          <button id="gReset" class="ghost">리셋</button>
+          <span class="badge">화살표는 항상 표시</span>
+        </div>
+        <p class="hint">F = G·M·m / r² (교육용 스케일)</p>
+      </div>
+    </section>
+
+    <!-- EM Controls -->
+    <section class="panel" id="panel-em">
+      <div class="group">
+        <div class="row"><label>전하 크기 |q| (상대값)</label><span id="eQVal">5</span></div>
+        <input id="eQ" type="range" min="1" max="20" step="1" value="5" />
+        <div class="row"><label>쿨롱 상수 k (스케일)</label><span id="ekVal">400</span></div>
+        <input id="ek" type="range" min="100" max="800" step="10" value="400" />
+      </div>
+      <div class="group">
+        <div class="row" style="gap:8px;flex-wrap:wrap">
+          <button id="eReset" class="ghost">리셋</button>
+          <button id="eCycle" class="ghost">상태 순환 (++ → +- → -+ → --)</button>
+        </div>
+        <div class="legend" id="eStatus" style="gap:8px;flex-wrap:wrap">
+          <span class="badge">짧게 클릭: 해당 전하 부호 전환</span>
+          <span class="badge">드래그: 전하 이동(두 개 모두)</span>
+          <span class="badge">화살표는 항상 표시</span>
+        </div>
+        <p class="hint">F = k·q₁·q₂ / r², 같은 부호는 반발, 다른 부호는 인력</p>
+      </div>
+    </section>
+
+    <!-- Strong Controls (슬라이더 방식) -->
+    <section class="panel" id="panel-strong">
+      <div class="group">
+        <p class="note">강력(모형): 세 입자를 끈으로 잇고, 멀어질수록 끈이 두꺼워집니다. <b>슬라이더</b>로 <b>끊김 거리</b>와 <b>복원 거리</b>를 조절하세요. (항상 <code>복원 &lt; 끊김 − 20px</code>)</p>
+      </div>
+      <div class="group">
+        <div class="row"><label>복원 거리 r<sub>restore</sub> (px)</label><span id="sReVal">0</span></div>
+        <input id="sRe" type="range" min="40" max="800" step="1" value="0" />
+        <div class="row"><label>끊김 거리 r<sub>break</sub> (px)</label><span id="sBreakVal">0</span></div>
+        <input id="sBreak" type="range" min="60" max="1000" step="1" value="0" />
+      </div>
+      <div class="group">
+        <div class="row" style="gap:8px;flex-wrap:wrap">
+          <button id="sReset" class="ghost">리셋</button>
+          <span class="badge">전자1/2/3: 드래그 이동</span>
+          <span class="badge">화살표 상시</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Weak Controls -->
+    <section class="panel" id="panel-weak">
+      <div class="group">
+        <p class="note">약력(아이디어): 확률적으로 n → p + e⁻ + ν̄ (베타 붕괴) 이벤트가 발생. 생성물 화살표가 잠시 나타났다 사라집니다.</p>
+      </div>
+      <div class="group">
+        <div class="row"><label>이벤트 간격 (초)</label><span id="wFreqVal">3</span></div>
+        <input id="wFreq" type="range" min="1" max="6" step="1" value="3" />
+        <div class="row"><button id="wReset" class="ghost">리셋</button></div>
+      </div>
+    </section>
+  </aside>
+
+  <main>
+    <div class="legend">
+      <span class="badge">캔버스에 마우스 올리면 팁</span>
+      <span id="tip" class="note"></span>
+    </div>
+    <canvas id="view" width="1200" height="720" aria-label="시뮬레이터"></canvas>
+    <div class="diagnostics">
+      <b>진단 & 테스트</b>
+      <div id="diag"></div>
+      <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap">
+        <button id="btnSmoke">스모크</button>
+        <button id="btnResizeTest">리사이즈</button>
+        <button id="btnDrawTest">그리기</button>
+        <button id="btnGravityRunTest">중력 실행 테스트</button>
+        <button id="btnUpdateGravityStepTest">중력 step() 테스트</button>
+        <button id="btnTabSwitchTest">탭 전환 테스트</button>
+        <button id="btnStrongLinksTest">강력 연결 테스트</button>
+        <button id="btnStrongThresholdsTest">강력 임계값 테스트</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+(function(){
+  function log(id, ok, msg){ const box=document.getElementById('diag'); if(!box)return; const p=document.createElement('div'); p.className=ok?'ok':'err'; p.textContent=`${ok?'PASS':'FAIL'}: ${id} – ${msg}`; box.appendChild(p); }
+  document.addEventListener('DOMContentLoaded', init);
+
+  function init(){
+    const canvas = document.getElementById('view');
+    const tip = document.getElementById('tip');
+    const ctx = canvas && canvas.getContext ? canvas.getContext('2d') : null;
+    log('canvas#view 존재', !!canvas, '캔버스 엘리먼트가 생성되어야 합니다.');
+    log('canvas.getContext 사용 가능', !!ctx, '2D 컨텍스트를 가져올 수 있어야 합니다.');
+    if(!canvas || !ctx){ return; }
+
+    // ===== Helpers =====
+    const DPR = ()=> window.devicePixelRatio || 1;
+    const clamp = (v,min,max)=>Math.max(min,Math.min(max,v));
+    const mix = (a,b,t)=>a+(b-a)*t;
+    const dist = (a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+    function drawArrow(fromX, fromY, toX, toY, color){
+      ctx.save(); ctx.strokeStyle=color; ctx.fillStyle=color; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(fromX,fromY); ctx.lineTo(toX,toY); ctx.stroke();
+      const ang=Math.atan2(toY-fromY,toX-fromX), s=10;
+      ctx.beginPath(); ctx.moveTo(toX,toY);
+      ctx.lineTo(toX - s*Math.cos(ang-Math.PI/6), toY - s*Math.sin(ang-Math.PI/6));
+      ctx.lineTo(toX - s*Math.cos(ang+Math.PI/6), toY - s*Math.sin(ang+Math.PI/6));
+      ctx.closePath(); ctx.fill(); ctx.restore(); }
+    const drawVector=(o,v,scale,c)=>drawArrow(o.x,o.y,o.x+v.x*scale,o.y+v.y*scale,c);
+
+    // ===== Tabs =====
+    let mode='gravity';
+    const tabs=document.getElementById('tabs');
+    tabs.addEventListener('click',(e)=>{ const t=e.target.closest('.tab'); if(!t)return; document.querySelectorAll('.tab').forEach(el=>el.classList.remove('active')); t.classList.add('active'); mode=t.dataset.panel; document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active')); document.getElementById('panel-'+mode).classList.add('active'); resetMode(mode); });
+
+    // ===== Resize & DPI =====
+    function resizeCanvas(){
+      const rect = canvas.parentElement.getBoundingClientRect();
+      const w = Math.max(600, Math.floor(rect.width));
+      const h = Math.max(360, Math.floor(rect.height - 12));
+      const r = DPR(); canvas.width=Math.floor(w*r); canvas.height=Math.floor(h*r); canvas.style.width=w+'px'; canvas.style.height=h+'px'; ctx.setTransform(r,0,0,r,0,0);
+      const cx=w/2 - 120, cy=h/2; // 행성을 더 왼쪽으로 이동
+      g.planet.x=cx; g.planet.y=cy; strong.center={x:cx,y:cy}; wk.pivot={x:cx,y:cy};
+      autoInitStrongThresholds(); syncStrongSliders();
+      resetMode(mode,{keepRunning:true});
+    }
+    window.addEventListener('resize', resizeCanvas);
+
+    // ===== Gravity =====
+    const g={ G:1.0, running:false, planet:{x:0,y:0,M:50,R:120}, obj:{x:0,y:0,vx:0,vy:0,m:5} };// G를 이전(0.5) 대비 2배로
+    const gM=document.getElementById('gM'), gm=document.getElementById('gm'), gr=document.getElementById('gr');
+    const gMVal=document.getElementById('gMVal'), gmVal=document.getElementById('gmVal'), grVal=document.getElementById('grVal');
+    const gStart=document.getElementById('gStart'), gReset=document.getElementById('gReset');
+    function resetGravity(){ const vmin=Math.min(canvas.width/DPR(),canvas.height/DPR()); g.planet.R=Math.max(60,Math.round(vmin*0.12)); g.planet.M=+gM.value; g.obj.m=+gm.value; const r=+gr.value; g.obj.x=g.planet.x+r; g.obj.y=g.planet.y; g.obj.vx=0; g.obj.vy=0; g.running=false; }
+    function updateGravity(dt){ const dx=g.planet.x-g.obj.x, dy=g.planet.y-g.obj.y; const r2=Math.max(dx*dx+dy*dy,1), r=Math.sqrt(r2); if(r<=g.planet.R){ g.running=false; return; } const dirX=dx/r, dirY=dy/r; const F=g.G*g.planet.M*g.obj.m/r2; const ax=F*dirX/g.obj.m, ay=F*dirY/g.obj.m; const arrowScale=600; const arrowLen=F*arrowScale; const vBoost = arrowLen*0.02; g.obj.vx+=(ax+dirX*vBoost)*dt; g.obj.vy+=(ay+dirY*vBoost)*dt; g.obj.x+=g.obj.vx*dt; g.obj.y+=g.obj.vy*dt; }
+    function drawGravity(){ const {planet,obj}=g; const grad=ctx.createRadialGradient(planet.x-planet.R/3,planet.y-planet.R/3,planet.R/5,planet.x,planet.y,planet.R); grad.addColorStop(0,'#93c5fd'); grad.addColorStop(1,'#1d4ed8'); ctx.fillStyle=grad; ctx.beginPath(); ctx.arc(planet.x,planet.y,planet.R,0,Math.PI*2); ctx.fill(); ctx.fillStyle='#1d4ed8'; ctx.beginPath(); ctx.arc(obj.x,obj.y,10,0,Math.PI*2); ctx.fill(); const dx=planet.x-obj.x, dy=planet.y-obj.y, r2=Math.max(dx*dx+dy*dy,1), r=Math.sqrt(r2); const dir={x:dx/r,y:dy/r}; const F=g.G*planet.M*obj.m/r2; drawVector({x:obj.x,y:obj.y}, dir, F*600, '#ef4444'); }
+    gM?.addEventListener('input',()=>{gMVal.textContent=gM.value; resetGravity();}); gm?.addEventListener('input',()=>{gmVal.textContent=gm.value; resetGravity();}); gr?.addEventListener('input',()=>{grVal.textContent=gr.value; resetGravity();}); gReset?.addEventListener('click',resetGravity); gStart?.addEventListener('click',()=>{ const tabGravity = document.querySelector('.tab[data-panel="gravity"]'); if(tabGravity){ document.querySelectorAll('.tab').forEach(el=>el.classList.remove('active')); tabGravity.classList.add('active'); } document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active')); document.getElementById('panel-gravity')?.classList.add('active'); mode='gravity'; resetGravity(); g.running=true; });
+
+    // ===== Electromagnetism =====
+    const e={ k:400, left:{x:0,y:0,q:+1}, right:{x:0,y:0,q:-1}, qAbs:5, dragging:false, dragTarget:null, dragStart:null };
+    const eQ=document.getElementById('eQ'), ek=document.getElementById('ek');
+    const eQVal=document.getElementById('eQVal'), ekVal=document.getElementById('ekVal');
+    const eReset=document.getElementById('eReset'), eCycle=document.getElementById('eCycle');
+    const eStatus=document.getElementById('eStatus');
+    function emStatusText(){ return `상태: q₁=${e.left.q>0?'+':'−'}, q₂=${e.right.q>0?'+':'−'}`; }
+    function updateEmStatus(){ eStatus.querySelectorAll('.now').forEach(n=>n.remove()); const span=document.createElement('span'); span.className='badge now'; span.textContent=emStatusText(); eStatus.appendChild(span); }
+    function resetEM(){ e.k=+ek.value; e.qAbs=+eQ.value; const cx=canvas.width/DPR()/2, cy=canvas.height/DPR()/2; e.left={x:cx-180,y:cy,q:+1}; e.right={x:cx+180,y:cy,q:-1}; updateEmStatus(); }
+    function drawCharge(c){ const r=24; const grad=ctx.createRadialGradient(c.x-r/3,c.y-r/3,r/6,c.x,c.y,r); grad.addColorStop(0,c.q>0?'#86efac':'#fecaca'); grad.addColorStop(1,c.q>0?'#16a34a':'#dc2626'); ctx.fillStyle=grad; ctx.beginPath(); ctx.arc(c.x,c.y,r,0,Math.PI*2); ctx.fill(); ctx.fillStyle='#fff'; ctx.font='bold 18px system-ui'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(c.q>0?'+':'−',c.x,c.y); }
+    function drawEM(){ drawCharge(e.left); drawCharge(e.right); const dx=e.right.x-e.left.x, dy=e.right.y-e.left.y, r2=Math.max(dx*dx+dy*dy,4), r=Math.sqrt(r2); const dir={x:dx/r,y:dy/r}; const q1=e.qAbs*e.left.q, q2=e.qAbs*e.right.q; const s=(q1*q2>0)?-1:1; const Fabs=e.k*Math.abs(q1*q2)/r2; const F1={x:dir.x*Fabs*s,y:dir.y*Fabs*s}, F2={x:-F1.x,y:-F1.y}; const scale=600, color=(s>0)?'#22c55e':'#ef4444'; drawVector({x:e.left.x,y:e.left.y},F1,scale,color); drawVector({x:e.right.x,y:e.right.y},F2,scale,color); }
+    function getMousePos(ev){ const r=canvas.getBoundingClientRect(); return {x:(ev.clientX-r.left), y:(ev.clientY-r.top)}; }
+    function hit(c,p){ return Math.hypot(p.x-c.x,p.y-c.y)<=24; }
+    canvas.addEventListener('mousedown',(ev)=>{ if(mode!=='em')return; const p=getMousePos(ev); if(hit(e.left,p)){ e.dragging=true; e.dragTarget='left';  e.dragStart={p,at:{x:e.left.x,y:e.left.y}}; } else if(hit(e.right,p)){ e.dragging=true; e.dragTarget='right'; e.dragStart={p,at:{x:e.right.x,y:e.right.y}}; } });
+    canvas.addEventListener('mousemove',(ev)=>{ if(mode!=='em'||!e.dragging)return; const p=getMousePos(ev); const dx=p.x-e.dragStart.p.x, dy=p.y-e.dragStart.p.y; const vw=canvas.width/DPR(), vh=canvas.height/DPR(); if(e.dragTarget==='left'){ e.left.x=clamp(e.dragStart.at.x+dx,40,vw-40); e.left.y=clamp(e.dragStart.at.y+dy,40,vh-40);} else { e.right.x=clamp(e.dragStart.at.x+dx,40,vw-40); e.right.y=clamp(e.dragStart.at.y+dy,40,vh-40);} tip.textContent='전자기력: 전하는 사용자가 드래그로만 이동. 짧게 클릭하면 ± 전환.'; });
+    window.addEventListener('mouseup',(ev)=>{ if(mode!=='em')return; const p=getMousePos(ev); if(e.dragging){ const moved=Math.hypot(p.x-e.dragStart.p.x,p.y-e.dragStart.p.y); if(moved<3){ if(e.dragTarget==='left'){ e.left.q*=-1; } else { e.right.q*=-1; } updateEmStatus(); } } e.dragging=false; e.dragTarget=null; e.dragStart=null; });
+    eReset?.addEventListener('click', resetEM);
+    eCycle?.addEventListener('click',()=>{ const states=[[+1,+1],[+1,-1],[-1,+1],[-1,-1]]; const cur=[e.left.q,e.right.q].toString(); const idx=states.findIndex(s=>s.toString()===cur); const nxt=states[(idx+1)%states.length]; e.left.q=nxt[0]; e.right.q=nxt[1]; updateEmStatus(); });
+
+    // ===== Strong (슬라이더 방식) =====
+    const strong={ center:{x:0,y:0}, nodes:[], links:[], baseLen:120, breakDist:220, reDist:190, dragging:false, dragIdx:-1, dragStart:null };
+    const sRe=document.getElementById('sRe');
+    const sReVal=document.getElementById('sReVal');
+    const sBreak=document.getElementById('sBreak');
+    const sBreakVal=document.getElementById('sBreakVal');
+    const sReset=document.getElementById('sReset');
+
+    function autoInitStrongThresholds(){
+      const viewMin=Math.min(canvas.width/DPR(),canvas.height/DPR());
+      strong.baseLen = Math.max(80, Math.round(viewMin*0.18));
+      strong.breakDist = Math.round(viewMin*0.52);
+      strong.reDist    = Math.round(viewMin*0.44);
+      if(strong.reDist >= strong.breakDist-20) strong.reDist = strong.breakDist-20;
+    }
+    function syncStrongSliders(){
+      const viewMin=Math.min(canvas.width/DPR(),canvas.height/DPR());
+      sBreak.min='60'; sBreak.max=String(Math.round(viewMin));
+      sRe.min='40';    sRe.max=String(Math.max(60, Math.round(viewMin-20)));
+      sBreak.value=String(Math.round(strong.breakDist)); sBreakVal.textContent=sBreak.value;
+      sRe.value=String(Math.round(strong.reDist));       sReVal.textContent=sRe.value;
+    }
+    function resetStrong(){
+      if(!strong.breakDist||!strong.reDist) autoInitStrongThresholds();
+      const c=strong.center, L0=strong.baseLen, R=Math.max(40, L0*0.6);
+      strong.nodes=[
+        {x:c.x + R*Math.cos(-Math.PI/2), y:c.y + R*Math.sin(-Math.PI/2)},
+        {x:c.x + R*Math.cos(-Math.PI/2 + 2*Math.PI/3), y:c.y + R*Math.sin(-Math.PI/2 + 2*Math.PI/3)},
+        {x:c.x + R*Math.cos(-Math.PI/2 + 4*Math.PI/3), y:c.y + R*Math.sin(-Math.PI/2 + 4*Math.PI/3)}
+      ];
+      strong.links=[ {a:0,b:1,broken:false},{a:1,b:2,broken:false},{a:2,b:0,broken:false} ];
+      syncStrongSliders();
+    }
+    function updateStrong(){
+      strong.links.forEach(L=>{ const A=strong.nodes[L.a], B=strong.nodes[L.b]; const r=dist(A,B)||1; if(!L.broken && r>strong.breakDist){ L.broken=true; } else if(L.broken && r<strong.reDist){ L.broken=false; } });
+    }
+    function drawStrong(){
+      // 노드
+      strong.nodes.forEach((n,i)=>{ const grad=ctx.createRadialGradient(n.x-6,n.y-6,6,n.x,n.y,16); grad.addColorStop(0,'#bae6fd'); grad.addColorStop(1,'#0284c7'); ctx.fillStyle=grad; ctx.beginPath(); ctx.arc(n.x,n.y,16,0,Math.PI*2); ctx.fill(); ctx.fillStyle='#0f172a'; ctx.font='12px system-ui'; ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillText(`전자${i+1}`, n.x, n.y+18); });
+      // 링크
+      strong.links.forEach(L=>{ const A=strong.nodes[L.a], B=strong.nodes[L.b]; const dx=B.x-A.x, dy=B.y-A.y; const r=Math.hypot(dx,dy)||1; const t=clamp((r-strong.baseLen)/(strong.breakDist-strong.baseLen),0,1); const w=mix(3,18,Math.pow(t,1.5)); ctx.save(); ctx.lineWidth=w; ctx.strokeStyle=L.broken?'#94a3b8':'#1e293b'; ctx.setLineDash(L.broken?[8,6]:[]); ctx.beginPath(); ctx.moveTo(A.x,A.y); ctx.lineTo(B.x,B.y); ctx.stroke(); if(!L.broken){ const dir={x:dx/r,y:dy/r}; const mid={x:mix(A.x,B.x,0.5), y:mix(A.y,B.y,0.5)}; drawArrow(mid.x-dir.x*10, mid.y-dir.y*10, mid.x+dir.x*10, mid.y+dir.y*10, '#ef4444'); drawArrow(mid.x+dir.x*10, mid.y+dir.y*10, mid.x-dir.x*10, mid.y-dir.y*10, '#ef4444'); } ctx.restore(); });
+      // 값 표시
+      ctx.fillStyle='#334155'; ctx.font='12px system-ui';
+      ctx.fillText(`강력: 끊김≈${strong.breakDist.toFixed(0)}px, 복원≈${strong.reDist.toFixed(0)}px`, 12, 20);
+    }
+
+    // 강력: 입력 이벤트(슬라이더)
+    sBreak?.addEventListener('input',()=>{
+      const v = +sBreak.value;
+      strong.breakDist = v;
+      if(strong.reDist >= strong.breakDist-20){
+        strong.reDist = strong.breakDist-20;
+        sRe.value = String(Math.round(strong.reDist));
+        sReVal.textContent = sRe.value;
+      }
+      sBreakVal.textContent = sBreak.value;
+    });
+    sRe?.addEventListener('input',()=>{
+      const v = +sRe.value;
+      strong.reDist = Math.min(v, strong.breakDist-20);
+      sRe.value = String(Math.round(strong.reDist));
+      sReVal.textContent = sRe.value;
+    });
+
+    // 강력: 노드 드래그
+    function pickStrongNode(p){ for(let i=0;i<strong.nodes.length;i++){ if(dist(p,strong.nodes[i])<=18) return i; } return -1; }
+    canvas.addEventListener('mousedown',(ev)=>{ if(mode!=='strong')return; const r=canvas.getBoundingClientRect(); const p={x:ev.clientX-r.left,y:ev.clientY-r.top}; const idx=pickStrongNode(p); if(idx>=0){ strong.dragging=true; strong.dragIdx=idx; strong.dragStart={p,at:{x:strong.nodes[idx].x,y:strong.nodes[idx].y}}; } });
+    canvas.addEventListener('mousemove',(ev)=>{ if(mode!=='strong'||!strong.dragging)return; const r=canvas.getBoundingClientRect(); const p={x:ev.clientX-r.left,y:ev.clientY-r.top}; const dx=p.x-strong.dragStart.p.x, dy=p.y-strong.dragStart.p.y; const vw=canvas.width/DPR(), vh=canvas.height/DPR(); const n=strong.nodes[strong.dragIdx]; n.x=clamp(strong.dragStart.at.x+dx,30,vw-30); n.y=clamp(strong.dragStart.at.y+dy,30,vh-30); });
+    window.addEventListener('mouseup',()=>{ if(mode!=='strong')return; strong.dragging=false; strong.dragIdx=-1; strong.dragStart=null; });
+    sReset?.addEventListener('click',()=>{ autoInitStrongThresholds(); syncStrongSliders(); resetStrong(); });
+
+    // ===== Weak (beta decay) =====
+    const wk={ pivot:{x:0,y:0}, t:0, last:-10, freq:3, decay:null };
+    const wFreq=document.getElementById('wFreq'), wFreqVal=document.getElementById('wFreqVal');
+    const wReset=document.getElementById('wReset');
+    function resetWeak(){ wk.freq=+wFreq.value; wk.t=0; wk.last=-10; wk.decay=null; }
+    wFreq?.addEventListener('input',()=>{wFreqVal.textContent=wFreq.value; resetWeak();});
+    wReset?.addEventListener('click', resetWeak);
+    function updateWeak(dt){ wk.t+=dt; if(wk.t - wk.last > wk.freq){ wk.last = wk.t; const ang1=Math.random()*Math.PI*2, ang2=ang1+Math.PI*0.6, ang3=ang1-Math.PI*0.6; wk.decay={ life:1.2, p:{x:wk.pivot.x,y:wk.pivot.y,dx:Math.cos(ang1),dy:Math.sin(ang1)}, e:{x:wk.pivot.x,y:wk.pivot.y,dx:Math.cos(ang2),dy:Math.sin(ang2)}, v:{x:wk.pivot.x,y:wk.pivot.y,dx:Math.cos(ang3),dy:Math.sin(ang3)} }; } if(wk.decay){ wk.decay.life-=dt; ['p','e','v'].forEach(k=>{ wk.decay[k].x += wk.decay[k].dx*120*dt; wk.decay[k].y += wk.decay[k].dy*120*dt; }); if(wk.decay.life<=0) wk.decay=null; } }
+    function drawWeak(){ const p=wk.pivot; ctx.fillStyle='#eab308'; ctx.beginPath(); ctx.arc(p.x,p.y,22,0,Math.PI*2); ctx.fill(); ctx.fillStyle='#0f172a'; ctx.font='12px system-ui'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('n',p.x,p.y); if(wk.decay){ ctx.save(); ctx.setLineDash([6,6]); ctx.strokeStyle='#a78bfa'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(wk.decay.p.x,wk.decay.p.y); ctx.moveTo(p.x,p.y); ctx.lineTo(wk.decay.e.x,wk.decay.e.y); ctx.moveTo(p.x,p.y); ctx.lineTo(wk.decay.v.x,wk.decay.v.y); ctx.stroke(); ctx.restore(); drawArrow(p.x,p.y,wk.decay.p.x,wk.decay.p.y,'#ef4444'); drawArrow(p.x,p.y,wk.decay.e.x,wk.decay.e.y,'#22c55e'); drawArrow(p.x,p.y,wk.decay.v.x,wk.decay.v.y,'#3b82f6'); ctx.fillStyle='#ef4444'; ctx.fillText('p⁺', wk.decay.p.x, wk.decay.p.y-14); ctx.fillStyle='#22c55e'; ctx.fillText('e⁻', wk.decay.e.x, wk.decay.e.y-14); ctx.fillStyle='#3b82f6'; ctx.fillText('ν̄', wk.decay.v.x, wk.decay.v.y-14); } ctx.fillStyle='#334155'; ctx.font='12px system-ui'; ctx.textAlign='left'; ctx.textBaseline='alphabetic'; ctx.fillText('약력: 확률적으로 n → p + e⁻ + ν̄ 발생, 생성물 화살표가 잠시 표시', 12, 20); }
+
+    // ===== Loop =====
+    let last=0; 
+    function loop(ts){
+      const dt = Math.min((ts - last) / 1000, 0.033);
+      last = ts;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      try {
+        if (mode === 'gravity') {
+          if (g.running) updateGravity(dt);
+          drawGravity();
+          tip.textContent = '중력: 실행▶로 낙하. 화살표는 항상 표시.';
+        } else if (mode === 'em') {
+          drawEM();
+          tip.textContent = '전자기력: 전하는 드래그만. 클릭 시 ± 전환. 화살표 상시.';
+        } else if (mode === 'strong') {
+          updateStrong();
+          drawStrong();
+          tip.textContent = '강력: 슬라이더로 끊김/복원 거리 조절.';
+        } else if (mode === 'weak') {
+          updateWeak(dt);
+          drawWeak();
+          tip.textContent = `약력: 이벤트 간격 ${wFreq?.value || 3}s`;
+        }
+      } catch (err) {
+        log('렌더 루프 오류', false, err.message);
+      }
+      requestAnimationFrame(loop);
+    }
+
+    function resetAll(){ resizeCanvas(); resetGravity(); resetEM(); resetStrong(); resetWeak(); syncLabels(); }
+    function resetMode(key,opt={}){
+      if(key==='gravity') resetGravity();
+      if(key==='em') resetEM();
+      if(key==='strong'){ if(!strong.breakDist) autoInitStrongThresholds(); resetStrong(); strong.links.forEach(L=>L.broken=false); syncStrongSliders(); }
+      if(key==='weak') resetWeak();
+      if(!opt.keepRunning && key==='gravity'){ g.running=false; }
+    }
+    function syncLabels(){ if(gM&&gMVal) gMVal.textContent=gM.value; if(gm&&gmVal) gmVal.textContent=gm.value; if(gr&&grVal) grVal.textContent=gr.value; if(eQ&&eQVal) eQVal.textContent=eQ.value; if(ek&&ekVal) ekVal.textContent=ek.value; }
+
+    // ===== Tests =====
+    document.getElementById('btnSmoke')?.addEventListener('click',()=>{ try{ log('스모크: 캔버스', !!canvas, '#view 확인'); log('스모크: 컨텍스트', !!ctx, '2D 컨텍스트 확인'); }catch(err){ log('스모크', false, err.message); } });
+    document.getElementById('btnResizeTest')?.addEventListener('click',()=>{ try{ resizeCanvas(); log('리사이즈', true, `${canvas.width}x${canvas.height}`);}catch(err){ log('리사이즈', false, err.message); } });
+    document.getElementById('btnDrawTest')?.addEventListener('click',()=>{ try{ drawGravity(); drawEM(); drawStrong(); drawWeak(); log('그리기', true, '모든 draw 호출 OK'); }catch(err){ log('그리기', false, err.message); } });
+    document.getElementById('btnGravityRunTest')?.addEventListener('click',()=>{ try{ mode='gravity'; resetGravity(); const x0=g.obj.x, y0=g.obj.y; g.running=true; setTimeout(()=>{ const moved=(Math.hypot(g.obj.x-x0,g.obj.y-y0)>0.5); log('중력 실행', moved, moved? '객체 이동 감지됨' : '이동 감지 안 됨'); }, 320); }catch(err){ log('중력 실행', false, err.message); } });
+    document.getElementById('btnUpdateGravityStepTest')?.addEventListener('click',()=>{
+      try{ resetGravity(); g.running=true; updateGravity(0.016); log('중력 step()', true, 'updateGravity(0.016) OK'); }
+      catch(err){ log('중력 step()', false, err.message); }
+    });
+    document.getElementById('btnTabSwitchTest')?.addEventListener('click', ()=>{
+      try{
+        const seq=['gravity','em','strong','weak']; let i=0;
+        const step=()=>{ const m=seq[i%seq.length];
+          document.querySelectorAll('.tab').forEach(el=>el.classList.remove('active'));
+          document.querySelector(`.tab[data-panel="${m}"]`)?.classList.add('active');
+          document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+          document.getElementById('panel-'+m)?.classList.add('active');
+          mode=m; log('탭 전환', true, `mode=${m}`);
+          i++; if(i<4) setTimeout(step, 400);
+        }; step();
+      }catch(err){ log('탭 전환', false, err.message); }
+    });
+    document.getElementById('btnStrongLinksTest')?.addEventListener('click',()=>{
+      try{
+        mode='strong'; resetStrong();
+        const lens=strong.links.map(L=>{ const A=strong.nodes[L.a], B=strong.nodes[L.b]; return Math.hypot(B.x-A.x,B.y-A.y).toFixed(1); });
+        const anyBroken=strong.links.some(L=>L.broken);
+        log('강력 연결', !anyBroken, `len=${lens.join(', ')} px, broken=${anyBroken}`);
+      }catch(err){ log('강력 연결', false, err.message); }
+    });
+    document.getElementById('btnStrongThresholdsTest')?.addEventListener('click',()=>{
+      try{
+        mode='strong';
+        log('강력 임계값', strong.reDist < strong.breakDist, `re=${Math.round(strong.reDist)} < break=${Math.round(strong.breakDist)}`);
+        const bk=strong.breakDist; strong.reDist=bk-5; if(strong.reDist>=strong.breakDist-20) strong.reDist=strong.breakDist-20;
+        log('보정 테스트', strong.reDist===bk-20, `expected re=bk-20=${bk-20}, got=${strong.reDist}`);
+      }catch(err){ log('강력 임계값', false, err.message); }
+    });
+
+    resetAll(); requestAnimationFrame((t)=>{ last=t; loop(t); });
+  }
+})();
+</script>
+</body>
+</html>
